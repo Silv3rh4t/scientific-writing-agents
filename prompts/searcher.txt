@@ -10,11 +10,6 @@ Return a structured list of 5–7 relevant sources that fall into the following 
 3. Case studies with real-world examples
 4. Reports or datasets from institutions (e.g., UN, PRS, IDSA, etc.)
 
-Each item should include:
-- Title
-- Author(s) and publication year (if known)
-- 2-line summary of relevance
-- Source or link (if known or guessable)
-- Category label
+Format each type of source as needed.
 
 Respond only in structured Markdown.

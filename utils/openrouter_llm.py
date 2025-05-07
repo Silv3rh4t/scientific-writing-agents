@@ -13,7 +13,8 @@ client = OpenAI(
 def ask_gpt(prompt, model="deepseek/deepseek-chat-v3-0324:free", max_tokens=1500):
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
+        messages=prompt,
         max_tokens=max_tokens
     )
+    print("Response: ", response)
     return response.choices[0].message.content

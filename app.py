@@ -1,126 +1,75 @@
 import streamlit as st
-st.set_page_config(page_title="AI Political Research Agent", layout="wide")
 from dotenv import load_dotenv
 load_dotenv()
 
-from agents.validator import ValidatorAgent
+from agents.structure import StructureAgent
 from agents.searcher import SearcherAgent
-from agents.reviewer import ReviewerAgent
-from agents.drafter import DrafterAgent
-from agents.critic import CriticAgent
 
-# ---- Set page config ----
+st.set_page_config(page_title="Political Science Research Assistant", layout="wide")
 
+# --- Session Initialization ---
+if "chat" not in st.session_state:
+    st.session_state.chat = []
 
-# ---- Session init ----
-if "step" not in st.session_state:
-    st.session_state.step = "validator"
+if "agent" not in st.session_state:
+    st.session_state.agent = StructureAgent()
 
-st.title("🧠 AI Political Research Assistant")
+if "points" not in st.session_state:
+    st.session_state.points = []
 
-# ---- User inputs ----
-with st.sidebar:
-    st.header("📝 Article Inputs")
-    scope = st.text_area("Scope", st.session_state.get("scope", ""), height=100)
-    premise = st.text_area("Premise", st.session_state.get("premise", ""), height=100)
-    hypothesis = st.text_area("Hypothesis", st.session_state.get("hypothesis", ""), height=100)
+if "evidence" not in st.session_state:
+    st.session_state.evidence = {}
 
-    if st.button("Save Inputs"):
-        st.session_state.scope = scope
-        st.session_state.premise = premise
-        st.session_state.hypothesis = hypothesis
-        st.success("Inputs saved.")
+if "initialized" not in st.session_state:
+    st.session_state.initialized = False
 
-# ---- Validator Step ----
-if st.session_state.step == "validator":
-    st.header("🔎 Step 1: Validate Premise and Hypothesis")
+st.title("Political Science Research Assistant")
 
-    if st.button("Run Validator"):
-        agent = ValidatorAgent()
-        st.session_state.validated = agent.run(scope, premise, hypothesis)
+# --- Sidebar: Real-Time Structure + Evidence ---
+st.sidebar.title("📌 Live Outline")
 
-    if "validated" in st.session_state:
-        st.subheader("✅ Validator Output")
-        st.write(st.session_state.validated)
+if st.session_state.points:
+    for pt in st.session_state.points:
+        st.sidebar.markdown(f"**• {pt}**")
+        ev = st.session_state.evidence.get(pt, [])
+        for e in ev:
+            st.sidebar.markdown(f"  - [📄 {e['title']}]({e['url']})")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Proceed to Literature Search"):
-                st.session_state.step = "searcher"
-        with col2:
-            if st.button("Re-run Validator"):
-                del st.session_state.validated
+# --- Chat Submission ---
+if prompt := st.chat_input("Type your thoughts or continue the conversation..."):
+    st.session_state.chat.append(("🧍 You", prompt))
 
-# ---- Searcher Step ----
-elif st.session_state.step == "searcher":
-    st.header("🔍 Step 2: Literature & Evidence Search")
+    # First input → structure + init
+    if not st.session_state.initialized:
+        response, points = st.session_state.agent.start(prompt)
+        st.session_state.points = points
+        st.session_state.chat.append(("🤖 Agent", response))
+        st.session_state.initialized = True
 
-    if st.button("Run Searcher"):
-        agent = SearcherAgent()
-        st.session_state.papers = agent.run(hypothesis)
+        # Background: fetch evidence
+        searcher = SearcherAgent()
+        for pt in points:
+            st.session_state.evidence[pt] = searcher.run(pt)
 
-    if "papers" in st.session_state:
-        st.subheader("📚 Search Results")
-        st.text_area("Edit search output (optional):", value=st.session_state.papers, key="edited_papers", height=300)
+    # Later: continue refining structure
+    else:
+        response, points = st.session_state.agent.chat(prompt)
+        st.session_state.points = points
+        st.session_state.chat.append(("🤖 Agent", response))
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Proceed to Review"):
-                st.session_state.step = "reviewer"
-        with col2:
-            if st.button("Re-run Search"):
-                del st.session_state.papers
+        # Update evidence as needed
+        searcher = SearcherAgent()
+        for pt in points:
+            if pt not in st.session_state.evidence:
+                st.session_state.evidence[pt] = searcher.run(pt)
 
-# ---- Reviewer Step ----
-elif st.session_state.step == "reviewer":
-    st.header("🧵 Step 3: Thematic Literature Review")
+# --- Chat History Display ---
+for sender, msg in st.session_state.chat:
+    with st.chat_message("user" if "You" in sender else "assistant"):
+        st.markdown(msg)
 
-    if st.button("Run Reviewer"):
-        agent = ReviewerAgent()
-        st.session_state.reviewed = agent.run(st.session_state.edited_papers)
-
-    if "reviewed" in st.session_state:
-        st.subheader("📖 Literature Review Output")
-        st.text_area("Edit review summary (optional):", value=st.session_state.reviewed, key="edited_review", height=400)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Proceed to Drafting"):
-                st.session_state.step = "drafter"
-        with col2:
-            if st.button("Re-run Reviewer"):
-                del st.session_state.reviewed
-
-# ---- Drafter Step ----
-elif st.session_state.step == "drafter":
-    st.header("✍️ Step 4: Draft Article")
-
-    if st.button("Run Drafter"):
-        agent = DrafterAgent()
-        st.session_state.draft = agent.run(scope, hypothesis, st.session_state.edited_review)
-
-    if "draft" in st.session_state:
-        st.subheader("📝 Draft Output")
-        st.text_area("Edit draft (optional):", value=st.session_state.draft, key="edited_draft", height=600)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Proceed to Critique"):
-                st.session_state.step = "critic"
-        with col2:
-            if st.button("Re-run Drafter"):
-                del st.session_state.draft
-
-# ---- Critic Step ----
-elif st.session_state.step == "critic":
-    st.header("🧐 Step 5: Critique and Feedback")
-
-    if st.button("Run Critic"):
-        agent = CriticAgent()
-        st.session_state.critique = agent.run(st.session_state.edited_draft)
-
-    if "critique" in st.session_state:
-        st.subheader("📋 Critique")
-        st.markdown(st.session_state.critique)
-
-        st.success("✅ Done. You can now export, edit, or re-run any stage above.")
+# --- Reset Button ---
+if st.sidebar.button("🔄 Reset All"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
