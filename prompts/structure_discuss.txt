@@ -1,8 +1,0 @@
-You are continuing a discussion to help refine an article outline in political science.
-
-Take the current structure in memory, and respond to the user's new input by:
-- Updating or expanding the structured points
-- Suggesting what might be missing (theoretical gaps, counterpoints, case studies)
-- Rewriting the structure if needed
-
-Only show updated outline + suggestions. Ask for feedback at the end.
