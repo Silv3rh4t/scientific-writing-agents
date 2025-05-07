@@ -1,29 +1,29 @@
 import streamlit as st
-from agents.chat_agent import ChatAgent
+from agent import SimpleChatAgent
 
-st.set_page_config(page_title="SpectreBot", layout="wide")
+with open("prompts/chat.txt") as f:
+    system_prompt = f.read()
 
 if "chat" not in st.session_state:
-    st.session_state.chat = ChatAgent()
+    st.session_state.chat = SimpleChatAgent(system_prompt)
 
-st.title("SpectreBot: Opinion Assistant")
+st.set_page_config(page_title="SpectreBot", layout="wide")
+st.title("SpectreBot (Nano)")
 
-# Sidebar: Show current structure and evidence
-structure = st.session_state.chat.structure
-if structure:
-    st.sidebar.markdown("## Current Structure")
-    for point in structure["points"]:
-        st.sidebar.markdown(f"- {point}")
-        ev = structure["evidence"].get(point, {})
-        if ev:
-            st.sidebar.markdown(f"  - **{ev.get('title')}**")
-            st.sidebar.markdown(f"    [{ev.get('link')}]({ev.get('link')})")
-            st.sidebar.caption(ev.get("description"))
-
-# Chat Input
-user_input = st.chat_input("Share your thoughts or give instructions")
+user_input = st.chat_input("Type here...")
 
 if user_input:
-    reply = st.session_state.chat.handle(user_input)
-    st.markdown(f"**You:** {user_input}")
-    st.markdown(f"**SpectreBot:** {reply}")
+    reply = st.session_state.chat.chat(user_input)
+    st.chat_message("user").write(user_input)
+    st.chat_message("assistant").write(reply)
+
+st.sidebar.markdown("### Working Draft / Structure")
+st.sidebar.markdown(st.session_state.chat.sidebar or "_Nothing yet_")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(f"**Tokens used:** {st.session_state.chat.token_count}")
+st.sidebar.markdown(f"**Estimated cost:** ${st.session_state.chat.cost_usd:.4f}")
+
+if st.sidebar.button("💾 Save Session"):
+    st.session_state.chat.export_session()
+    st.sidebar.success("Session saved.")
