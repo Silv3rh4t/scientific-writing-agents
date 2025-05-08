@@ -3,19 +3,22 @@ import json
 import uuid
 import requests
 from datetime import datetime
-from tools import core_search, web_search
+from tools import core_search, tavily_search
 
 class SpectreAgent:
-    def __init__(self, system_prompt):
+    def __init__(self, system_prompt=None):
         self.model = "openai/gpt-4.1-nano"
         self.api_key = os.getenv("OPENROUTER_API_KEY")
 
-        self.prompt = system_prompt
-        self.history = []
-        self.sidebar = ""
-        self.sidebar_snapshots = []
-        self.session_id = str(uuid.uuid4())
+        if system_prompt:
+            self.prompt = system_prompt
+        else:
+            with open("prompts/chat.txt") as f:
+                self.prompt = f.read()
 
+        self.history = []
+        self.session_id = str(uuid.uuid4())
+        self.article = {}  # for sidebar
         self.token_in = 0
         self.token_out = 0
 
@@ -27,9 +30,7 @@ class SpectreAgent:
                     "description": "Search academic papers on a topic.",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "query": {"type": "string"}
-                        },
+                        "properties": {"query": {"type": "string"}},
                         "required": ["query"]
                     }
                 }
@@ -37,13 +38,11 @@ class SpectreAgent:
             {
                 "type": "function",
                 "function": {
-                    "name": "web_search",
+                    "name": "tavily_search",
                     "description": "Search the web for recent content on a topic.",
                     "parameters": {
                         "type": "object",
-                        "properties": {
-                            "query": {"type": "string"}
-                        },
+                        "properties": {"query": {"type": "string"}},
                         "required": ["query"]
                     }
                 }
@@ -57,18 +56,19 @@ class SpectreAgent:
             "X-Title": "SpectreBot"
         }
 
-    def _record_cost(self, input_tokens, output_tokens):
-        self.token_in += input_tokens
-        self.token_out += output_tokens
+    def _record_cost(self, usage):
+        self.token_in += usage.get("prompt_tokens", 0)
+        self.token_out += usage.get("completion_tokens", 0)
 
     def _estimate_cost(self):
-        in_cost = self.token_in * 0.10 / 1_000_000
-        out_cost = self.token_out * 0.40 / 1_000_000
-        return round(in_cost + out_cost, 6)
+        return round((self.token_in * 0.10 + self.token_out * 0.40) / 1_000_000, 6)
 
     def chat(self, user_input):
         self.history.append({"role": "user", "content": user_input})
-        messages = [{"role": "system", "content": self.prompt}] + self.history
+        messages = [
+            {"role": "system", "content": self.prompt},
+            *[msg if isinstance(msg["content"], str) else {"role": msg["role"], "content": json.dumps(msg["content"])} for msg in self.history]
+        ]
 
         payload = {
             "model": self.model,
@@ -78,56 +78,85 @@ class SpectreAgent:
         }
 
         r = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=self._headers(), json=payload)
+        if not r.ok:
+            return {"chat": f"API Error: {r.status_code}", "side": {}}
+
         data = r.json()
+        if "choices" not in data:
+            return {"chat": f"Unexpected response: {json.dumps(data)}", "side": {}}
+
         msg = data["choices"][0]["message"]
+        usage = data.get("usage", {})
+        self._record_cost(usage)
 
-        self._record_cost(data["usage"]["prompt_tokens"], data["usage"]["completion_tokens"])
+        print("\n[GPT THOUGHT]:\n", json.dumps(msg, indent=2))
 
+        tool_calls = []
         if "tool_calls" in msg:
+            self.history.append(msg)
             for call in msg["tool_calls"]:
-                tool = call["function"]["name"]
+                name = call["function"]["name"]
                 args = json.loads(call["function"]["arguments"])
-                if tool == "core_search":
-                    result = core_search(args["query"])
-                elif tool == "web_search":
-                    result = web_search(args["query"])
-                else:
-                    result = "Tool not recognized."
-
-                self.history.append(msg)
+                result = core_search(args["query"]) if name == "core_search" else tavily_search(args["query"])
                 self.history.append({
-                    "role": "function",
-                    "name": tool,
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "name": name,
                     "content": result
                 })
+                tool_calls.append({"name": name, "arguments": args})
+            return self.chat("(continue)")
 
-                return self.chat("(continue)")
+        content = msg.get("content", {})
+        parsed = {}
+        if isinstance(content, str):
+            try:
+                parsed = json.loads(content)
+            except Exception as e:
+                print("[WARN] Failed to parse assistant content as JSON:", e)
+                parsed = {"chat": content, "side": {}}
+        else:
+            parsed = {"chat": str(content), "side": {}}
 
+        msg["content"] = json.dumps(parsed)
         self.history.append(msg)
-        content = msg["content"]
 
-        if "===SIDEBAR===" in content:
-            chat, sidebar = content.split("===SIDEBAR===")
-            self.sidebar = sidebar.strip()
-            self.sidebar_snapshots.append({
-                "time": datetime.now().isoformat(),
-                "content": self.sidebar
-            })
-            return chat.strip()
-        return content.strip()
+        chat_text = parsed.get("chat", "")
+        side_update = parsed.get("side", {})
+        if isinstance(side_update, dict):
+            self.article.update(side_update)
+
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "user_input": user_input,
+            "model_response": parsed,
+            "tool_calls": tool_calls,
+            "token_usage": {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total": usage.get("total_tokens", 0)
+            },
+            "model": self.model
+        }
+        os.makedirs("storage/logs", exist_ok=True)
+        log_file = f"storage/logs/live_session_{self.session_id[:8]}.jsonl"
+        with open(log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+
+        return {"chat": chat_text, "side": side_update}
+
+    def get_article(self):
+        return "\n\n".join(self.article.get(str(i), "") for i in sorted(map(int, self.article)))
 
     def export_session(self):
-        from storage.session_log import save_session
-        save_session(self.session_id, {
-            "messages": self.history,
-            "sidebar": self.sidebar_snapshots,
-            "tokens_in": self.token_in,
-            "tokens_out": self.token_out,
-            "cost_usd": self._estimate_cost()
-        })
-
-    def replace_paragraph(self, old_text, new_paragraph):
-        """Future: Only submit and re-write one part of article to save cost"""
-        lines = self.sidebar.split("\n\n")
-        updated = [new_paragraph if old_text in para else para for para in lines]
-        self.sidebar = "\n\n".join(updated)
+        os.makedirs("storage/logs", exist_ok=True)
+        filename = f"storage/logs/session_{self.session_id[:8]}.json"
+        with open(filename, "w") as f:
+            json.dump({
+                "session_id": self.session_id,
+                "tokens_in": self.token_in,
+                "tokens_out": self.token_out,
+                "cost_usd": self._estimate_cost(),
+                "messages": self.history,
+                "article": self.article
+            }, f, indent=2)

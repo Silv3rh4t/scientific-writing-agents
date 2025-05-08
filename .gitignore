@@ -77,5 +77,4 @@ Thumbs.db
 *~
 
 # Ignore all in output except .gitkeep
-output/*
-!output/.gitkeep
+storage/
