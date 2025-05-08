@@ -1,4 +1,4 @@
-# SpectreBot: AI Political Research Assistant
+# AI Article Research Assistant
 
 SpectreBot is an experimental, modular AI-powered assistant for political science research and article drafting. It guides users through a rigorous, multi-stage workflow—from hypothesis validation to literature review, drafting, and critique—using state-of-the-art LLMs and a clean, interactive Streamlit UI.
 
