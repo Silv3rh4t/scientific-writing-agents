@@ -2,8 +2,8 @@ import streamlit as st
 import json
 from agent import SpectreAgent
 
-st.set_page_config(page_title="SpectreBot", layout="wide")
-st.title("🧠 SpectreBot")
+st.set_page_config(page_title="Writing Assistant", layout="wide")
+st.title("Writing Assistant")
 
 if "chat" not in st.session_state:
     st.session_state.chat = SpectreAgent()

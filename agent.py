@@ -18,7 +18,7 @@ class SpectreAgent:
 
         self.history = []
         self.session_id = str(uuid.uuid4())
-        self.article = {}  # for sidebar
+        self.article = {} 
         self.token_in = 0
         self.token_out = 0
 
